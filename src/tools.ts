@@ -48,21 +48,22 @@ export const tools: ToolDef[] = [
   },
   {
     name: 'internal_transfer',
-    description: 'Transfer between Mercury accounts',
+    description: 'Transfer funds between two Mercury accounts',
     inputSchema: z.object({
-      account_id: z.string().describe('source account UUID'),
-      receiving_account_id: z.string().describe('destination account UUID'),
+      source_account_id: z.string().describe('source account UUID'),
+      destination_account_id: z.string().describe('destination account UUID'),
       amount: z.number().describe('transfer amount in dollars'),
-      memo: z.string().optional().describe('transfer memo'),
+      note: z.string().optional().describe('transfer note'),
       idempotency_key: z.string().optional().describe('idempotency key'),
     }),
     handler: async (client, args: {
-      account_id: string; receiving_account_id: string;
-      amount: number; memo?: string; idempotency_key?: string;
-    }) => client.createInternalTransfer(args.account_id, {
-      receivingAccountId: args.receiving_account_id,
+      source_account_id: string; destination_account_id: string;
+      amount: number; note?: string; idempotency_key?: string;
+    }) => client.createInternalTransfer({
+      sourceAccountId: args.source_account_id,
+      destinationAccountId: args.destination_account_id,
       amount: args.amount,
-      memo: args.memo,
+      note: args.note,
       idempotencyKey: args.idempotency_key,
     }),
   },
@@ -132,6 +133,16 @@ export const tools: ToolDef[] = [
     }),
   },
   {
+    name: 'transaction_attachment_upload',
+    description: 'Upload an attachment to a transaction from a local file path',
+    inputSchema: z.object({
+      transaction_id: z.string().describe('transaction UUID'),
+      file_path: z.string().describe('absolute path to the file to upload'),
+    }),
+    handler: async (client, args: { transaction_id: string; file_path: string }) =>
+      client.uploadTransactionAttachment(args.transaction_id, args.file_path),
+  },
+  {
     name: 'send_money',
     description: 'Send payment to a recipient',
     inputSchema: z.object({
@@ -155,6 +166,121 @@ export const tools: ToolDef[] = [
       memo: args.memo,
       note: args.note,
     }),
+  },
+  {
+    name: 'request_send_money',
+    description: 'Queue a payment to a recipient that requires web approval (no IP whitelist needed)',
+    inputSchema: z.object({
+      account_id: z.string().describe('source account UUID'),
+      recipient_id: z.string().describe('recipient UUID'),
+      amount: z.number().describe('amount in dollars'),
+      payment_method: z.enum(['ach', 'domesticWire', 'check']).describe('payment method'),
+      idempotency_key: z.string().describe('unique request key'),
+      memo: z.string().optional().describe('payment memo'),
+      note: z.string().optional().describe('internal note'),
+    }),
+    handler: async (client, args: {
+      account_id: string; recipient_id: string; amount: number;
+      payment_method: string; idempotency_key: string;
+      memo?: string; note?: string;
+    }) => client.requestSendMoney(args.account_id, {
+      recipientId: args.recipient_id,
+      amount: args.amount,
+      paymentMethod: args.payment_method,
+      idempotencyKey: args.idempotency_key,
+      memo: args.memo,
+      note: args.note,
+    }),
+  },
+  {
+    name: 'send_money_approval_requests_list',
+    description: 'List send money approval requests',
+    inputSchema: z.object({
+      page: z.string().optional().describe('pagination cursor'),
+    }),
+    handler: async (client, args: { page?: string }) =>
+      client.listSendMoneyApprovalRequests({ page: args.page }),
+  },
+
+  // --- Cards ---
+  {
+    name: 'cards_list',
+    description: 'List all cards across the organization',
+    inputSchema: z.object({}),
+    handler: async (client) => client.listCards(),
+  },
+  {
+    name: 'card_create',
+    description: 'Create a new card',
+    inputSchema: z.object({
+      user_id: z.string().describe('user UUID the card belongs to'),
+      type: z.string().describe('card type (e.g. virtual, physical)'),
+      kind: z.string().describe('card kind (e.g. debit, credit)'),
+      account_id: z.string().optional().describe('account UUID to associate'),
+      nickname: z.string().optional().describe('card nickname'),
+      spend_limit: z.string().optional().describe('spend limit JSON (amountCents, interval)'),
+    }),
+    handler: async (client, args: {
+      user_id: string; type: string; kind: string;
+      account_id?: string; nickname?: string; spend_limit?: string;
+    }) => client.createCard({
+      userId: args.user_id,
+      type: args.type,
+      kind: args.kind,
+      accountId: args.account_id,
+      nickname: args.nickname,
+      spendLimit: args.spend_limit ? JSON.parse(args.spend_limit) : undefined,
+    }),
+  },
+  {
+    name: 'card_get',
+    description: 'Get card details by ID',
+    inputSchema: z.object({
+      card_id: z.string().describe('card UUID'),
+    }),
+    handler: async (client, args: { card_id: string }) =>
+      client.getCard(args.card_id),
+  },
+  {
+    name: 'card_update',
+    description: 'Update card nickname or spend limit',
+    inputSchema: z.object({
+      card_id: z.string().describe('card UUID'),
+      nickname: z.string().optional().describe('new nickname'),
+      spend_limit: z.string().optional().describe('spend limit JSON (amountCents, interval)'),
+    }),
+    handler: async (client, args: { card_id: string; nickname?: string; spend_limit?: string }) =>
+      client.updateCard(args.card_id, {
+        nickname: args.nickname,
+        spendLimit: args.spend_limit ? JSON.parse(args.spend_limit) : undefined,
+      }),
+  },
+  {
+    name: 'card_cancel',
+    description: 'Cancel a card',
+    inputSchema: z.object({
+      card_id: z.string().describe('card UUID'),
+    }),
+    handler: async (client, args: { card_id: string }) =>
+      client.cancelCard(args.card_id),
+  },
+  {
+    name: 'card_freeze',
+    description: 'Freeze a card',
+    inputSchema: z.object({
+      card_id: z.string().describe('card UUID'),
+    }),
+    handler: async (client, args: { card_id: string }) =>
+      client.freezeCard(args.card_id),
+  },
+  {
+    name: 'card_unfreeze',
+    description: 'Unfreeze a card',
+    inputSchema: z.object({
+      card_id: z.string().describe('card UUID'),
+    }),
+    handler: async (client, args: { card_id: string }) =>
+      client.unfreezeCard(args.card_id),
   },
 
   // --- Recipients ---
@@ -216,13 +342,86 @@ export const tools: ToolDef[] = [
       client.updateRecipient(args.recipient_id, JSON.parse(args.data)),
   },
   {
-    name: 'recipient_attachments',
-    description: 'List recipient attachments',
+    name: 'recipient_delete',
+    description: 'Delete a recipient',
     inputSchema: z.object({
       recipient_id: z.string().describe('recipient UUID'),
     }),
     handler: async (client, args: { recipient_id: string }) =>
-      client.listRecipientAttachments(args.recipient_id),
+      client.deleteRecipient(args.recipient_id),
+  },
+  {
+    name: 'recipient_attachments',
+    description: 'List all recipient attachments across the organization',
+    inputSchema: z.object({}),
+    handler: async (client) => client.listRecipientAttachments(),
+  },
+  {
+    name: 'recipient_attachment_upload',
+    description: 'Upload an attachment to a recipient from a local file path',
+    inputSchema: z.object({
+      recipient_id: z.string().describe('recipient UUID'),
+      file_path: z.string().describe('absolute path to the file to upload'),
+    }),
+    handler: async (client, args: { recipient_id: string; file_path: string }) =>
+      client.uploadRecipientAttachment(args.recipient_id, args.file_path),
+  },
+
+  // --- Recipient Invites ---
+  {
+    name: 'recipient_invites_list',
+    description: 'List recipient invites',
+    inputSchema: z.object({
+      page: z.string().optional().describe('pagination cursor'),
+    }),
+    handler: async (client, args: { page?: string }) =>
+      client.listRecipientInvites({ page: args.page }),
+  },
+  {
+    name: 'recipient_invite_create',
+    description: 'Create a recipient invite',
+    inputSchema: z.object({
+      name: z.string().describe('recipient name'),
+      contact_email: z.string().optional().describe('contact email'),
+      notes: z.string().optional().describe('notes'),
+      organization_name_on_request: z.string().optional().describe('org name shown on request'),
+      payment_methods: z.string().optional().describe('comma-separated payment methods'),
+      recipient_id: z.string().optional().describe('existing recipient UUID'),
+      require_tax_document: z.boolean().optional().describe('require a tax document'),
+      send_email: z.boolean().optional().describe('send an invite email'),
+    }),
+    handler: async (client, args: {
+      name: string; contact_email?: string; notes?: string;
+      organization_name_on_request?: string; payment_methods?: string;
+      recipient_id?: string; require_tax_document?: boolean; send_email?: boolean;
+    }) => client.createRecipientInvite({
+      name: args.name,
+      contactEmail: args.contact_email,
+      notes: args.notes,
+      organizationNameOnRequest: args.organization_name_on_request,
+      paymentMethods: args.payment_methods ? args.payment_methods.split(',').map(p => p.trim()) : undefined,
+      recipientId: args.recipient_id,
+      requireTaxDocument: args.require_tax_document,
+      sendEmail: args.send_email,
+    }),
+  },
+  {
+    name: 'recipient_invite_get',
+    description: 'Get a recipient invite by ID',
+    inputSchema: z.object({
+      invite_id: z.string().describe('invite UUID'),
+    }),
+    handler: async (client, args: { invite_id: string }) =>
+      client.getRecipientInvite(args.invite_id),
+  },
+  {
+    name: 'recipient_invite_delete',
+    description: 'Delete a recipient invite',
+    inputSchema: z.object({
+      invite_id: z.string().describe('invite UUID'),
+    }),
+    handler: async (client, args: { invite_id: string }) =>
+      client.deleteRecipientInvite(args.invite_id),
   },
 
   // --- AR Invoices ---
@@ -303,6 +502,15 @@ export const tools: ToolDef[] = [
     handler: async (client, args: { slug: string }) =>
       client.listArInvoiceAttachments(args.slug),
   },
+  {
+    name: 'ar_attachment_get',
+    description: 'Get an AR attachment by ID',
+    inputSchema: z.object({
+      attachment_id: z.string().describe('attachment UUID'),
+    }),
+    handler: async (client, args: { attachment_id: string }) =>
+      client.getArAttachment(args.attachment_id),
+  },
 
   // --- AR Customers ---
   {
@@ -348,6 +556,15 @@ export const tools: ToolDef[] = [
     handler: async (client, args: { customer_id: string; data: string }) =>
       client.updateArCustomer(args.customer_id, JSON.parse(args.data)),
   },
+  {
+    name: 'ar_customer_delete',
+    description: 'Delete an AR customer',
+    inputSchema: z.object({
+      customer_id: z.string().describe('customer ID'),
+    }),
+    handler: async (client, args: { customer_id: string }) =>
+      client.deleteArCustomer(args.customer_id),
+  },
 
   // --- Treasury ---
   {
@@ -358,12 +575,22 @@ export const tools: ToolDef[] = [
   },
   {
     name: 'treasury_transactions',
-    description: 'List treasury transactions',
+    description: 'List transactions for a treasury account',
     inputSchema: z.object({
+      treasury_id: z.string().describe('treasury account UUID'),
       page: z.string().optional().describe('pagination cursor'),
     }),
-    handler: async (client, args: { page?: string }) =>
-      client.listTreasuryTransactions({ page: args.page }),
+    handler: async (client, args: { treasury_id: string; page?: string }) =>
+      client.listTreasuryTransactions(args.treasury_id, { page: args.page }),
+  },
+  {
+    name: 'treasury_statements',
+    description: 'List statements for a treasury account',
+    inputSchema: z.object({
+      treasury_id: z.string().describe('treasury account UUID'),
+    }),
+    handler: async (client, args: { treasury_id: string }) =>
+      client.listTreasuryStatements(args.treasury_id),
   },
 
   // --- Categories ---
@@ -372,6 +599,54 @@ export const tools: ToolDef[] = [
     description: 'List transaction categories',
     inputSchema: z.object({}),
     handler: async (client) => client.listCategories(),
+  },
+  {
+    name: 'category_create',
+    description: 'Create a new transaction category',
+    inputSchema: z.object({
+      name: z.string().describe('category name'),
+      visible_for_card_spend: z.boolean().describe('visible for card spend'),
+      visible_for_other: z.boolean().describe('visible for other transactions'),
+      visible_for_reimbursements: z.boolean().describe('visible for reimbursements'),
+    }),
+    handler: async (client, args: {
+      name: string; visible_for_card_spend: boolean;
+      visible_for_other: boolean; visible_for_reimbursements: boolean;
+    }) => client.createCategory({
+      name: args.name,
+      visibleForCardSpend: args.visible_for_card_spend,
+      visibleForOther: args.visible_for_other,
+      visibleForReimbursements: args.visible_for_reimbursements,
+    }),
+  },
+  {
+    name: 'category_edit',
+    description: 'Edit a transaction category',
+    inputSchema: z.object({
+      category_id: z.string().describe('category UUID'),
+      name: z.string().optional().describe('category name'),
+      visible_for_card_spend: z.boolean().optional().describe('visible for card spend'),
+      visible_for_other: z.boolean().optional().describe('visible for other transactions'),
+      visible_for_reimbursements: z.boolean().optional().describe('visible for reimbursements'),
+    }),
+    handler: async (client, args: {
+      category_id: string; name?: string; visible_for_card_spend?: boolean;
+      visible_for_other?: boolean; visible_for_reimbursements?: boolean;
+    }) => client.editCategory(args.category_id, {
+      name: args.name,
+      visibleForCardSpend: args.visible_for_card_spend,
+      visibleForOther: args.visible_for_other,
+      visibleForReimbursements: args.visible_for_reimbursements,
+    }),
+  },
+  {
+    name: 'category_delete',
+    description: 'Delete a transaction category',
+    inputSchema: z.object({
+      category_id: z.string().describe('category UUID'),
+    }),
+    handler: async (client, args: { category_id: string }) =>
+      client.deleteCategory(args.category_id),
   },
 
   // --- Credit ---
@@ -454,12 +729,14 @@ export const tools: ToolDef[] = [
     description: 'Create a webhook endpoint',
     inputSchema: z.object({
       url: z.string().describe('webhook URL'),
-      events: z.string().optional().describe('comma-separated event types'),
+      event_types: z.string().optional().describe('comma-separated event types'),
+      filter_paths: z.string().optional().describe('comma-separated filter paths'),
     }),
-    handler: async (client, args: { url: string; events?: string }) =>
+    handler: async (client, args: { url: string; event_types?: string; filter_paths?: string }) =>
       client.createWebhook({
         url: args.url,
-        events: args.events ? args.events.split(',').map(e => e.trim()) : undefined,
+        eventTypes: args.event_types ? args.event_types.split(',').map(e => e.trim()) : undefined,
+        filterPaths: args.filter_paths ? args.filter_paths.split(',').map(e => e.trim()) : undefined,
       }),
   },
   {
@@ -468,13 +745,38 @@ export const tools: ToolDef[] = [
     inputSchema: z.object({
       webhook_id: z.string().describe('webhook UUID'),
       url: z.string().optional().describe('new webhook URL'),
-      events: z.string().optional().describe('comma-separated event types'),
+      event_types: z.string().optional().describe('comma-separated event types'),
+      filter_paths: z.string().optional().describe('comma-separated filter paths'),
+      status: z.string().optional().describe('webhook status'),
     }),
-    handler: async (client, args: { webhook_id: string; url?: string; events?: string }) =>
-      client.updateWebhook(args.webhook_id, {
-        url: args.url,
-        events: args.events ? args.events.split(',').map(e => e.trim()) : undefined,
-      }),
+    handler: async (client, args: {
+      webhook_id: string; url?: string; event_types?: string;
+      filter_paths?: string; status?: string;
+    }) => client.updateWebhook(args.webhook_id, {
+      url: args.url,
+      eventTypes: args.event_types ? args.event_types.split(',').map(e => e.trim()) : undefined,
+      filterPaths: args.filter_paths ? args.filter_paths.split(',').map(e => e.trim()) : undefined,
+      status: args.status,
+    }),
+  },
+  {
+    name: 'webhook_delete',
+    description: 'Delete a webhook endpoint',
+    inputSchema: z.object({
+      webhook_id: z.string().describe('webhook UUID'),
+    }),
+    handler: async (client, args: { webhook_id: string }) =>
+      client.deleteWebhook(args.webhook_id),
+  },
+  {
+    name: 'webhook_verify',
+    description: 'Send a verification event to a webhook endpoint',
+    inputSchema: z.object({
+      webhook_id: z.string().describe('webhook UUID'),
+      event_type: z.string().describe('event type to send'),
+    }),
+    handler: async (client, args: { webhook_id: string; event_type: string }) =>
+      client.verifyWebhook(args.webhook_id, args.event_type),
   },
 
   // --- SAFEs ---
@@ -496,6 +798,15 @@ export const tools: ToolDef[] = [
     handler: async (client, args: { safe_id: string }) =>
       client.getSafe(args.safe_id),
   },
+  {
+    name: 'safe_document',
+    description: 'Download a SAFE document',
+    inputSchema: z.object({
+      safe_id: z.string().describe('SAFE request UUID'),
+    }),
+    handler: async (client, args: { safe_id: string }) =>
+      client.getSafeDocument(args.safe_id),
+  },
 
   // --- Statements ---
   {
@@ -511,11 +822,138 @@ export const tools: ToolDef[] = [
   // --- Send Money Approval ---
   {
     name: 'send_money_approval_get',
-    description: 'Get send money approval request',
+    description: 'Get send money approval request by ID',
     inputSchema: z.object({
       request_id: z.string().describe('approval request UUID'),
     }),
     handler: async (client, args: { request_id: string }) =>
       client.getSendMoneyApprovalRequest(args.request_id),
+  },
+
+  // --- Onboarding ---
+  {
+    name: 'onboarding_submit',
+    description: 'Submit onboarding data for a new account application',
+    inputSchema: z.object({
+      data: z.string().describe('onboarding payload JSON (partner, beneficialOwners, etc)'),
+    }),
+    handler: async (client, args: { data: string }) =>
+      client.submitOnboardingData(JSON.parse(args.data)),
+  },
+
+  // --- Books: Chart of Accounts Templates ---
+  {
+    name: 'coa_templates_list',
+    description: 'List all Chart of Accounts templates',
+    inputSchema: z.object({}),
+    handler: async (client) => client.listCoaTemplates(),
+  },
+  {
+    name: 'coa_template_create',
+    description: 'Create a Chart of Accounts template',
+    inputSchema: z.object({
+      data: z.string().describe('COA template payload JSON'),
+    }),
+    handler: async (client, args: { data: string }) =>
+      client.createCoaTemplate(JSON.parse(args.data)),
+  },
+  {
+    name: 'coa_template_get',
+    description: 'Retrieve a Chart of Accounts template by ID',
+    inputSchema: z.object({
+      coa_template_id: z.string().describe('COA template UUID'),
+    }),
+    handler: async (client, args: { coa_template_id: string }) =>
+      client.getCoaTemplate(args.coa_template_id),
+  },
+  {
+    name: 'coa_template_delete',
+    description: 'Delete a Chart of Accounts template',
+    inputSchema: z.object({
+      coa_template_id: z.string().describe('COA template UUID'),
+    }),
+    handler: async (client, args: { coa_template_id: string }) =>
+      client.deleteCoaTemplate(args.coa_template_id),
+  },
+
+  // --- Books: Ledger Templates ---
+  {
+    name: 'ledger_template_create',
+    description: 'Create a ledger template',
+    inputSchema: z.object({
+      data: z.string().describe('ledger template payload JSON'),
+    }),
+    handler: async (client, args: { data: string }) =>
+      client.createLedgerTemplate(JSON.parse(args.data)),
+  },
+  {
+    name: 'ledger_template_update',
+    description: 'Update a ledger template',
+    inputSchema: z.object({
+      ledger_id: z.string().describe('ledger template UUID'),
+      data: z.string().describe('ledger template update payload JSON'),
+    }),
+    handler: async (client, args: { ledger_id: string; data: string }) =>
+      client.updateLedgerTemplate(args.ledger_id, JSON.parse(args.data)),
+  },
+  {
+    name: 'ledger_template_delete',
+    description: 'Delete a ledger template',
+    inputSchema: z.object({
+      ledger_id: z.string().describe('ledger template UUID'),
+    }),
+    handler: async (client, args: { ledger_id: string }) =>
+      client.deleteLedgerTemplate(args.ledger_id),
+  },
+
+  // --- Books: Journal Entries ---
+  {
+    name: 'journal_entries_list',
+    description: 'List all journal entries for a books ledger',
+    inputSchema: z.object({
+      books_id: z.string().describe('books ledger UUID'),
+    }),
+    handler: async (client, args: { books_id: string }) =>
+      client.listJournalEntries(args.books_id),
+  },
+  {
+    name: 'journal_entries_create',
+    description: 'Create multiple journal entries for a books ledger',
+    inputSchema: z.object({
+      books_id: z.string().describe('books ledger UUID'),
+      data: z.string().describe('journal entries payload JSON (array)'),
+    }),
+    handler: async (client, args: { books_id: string; data: string }) =>
+      client.createJournalEntries(args.books_id, JSON.parse(args.data)),
+  },
+  {
+    name: 'journal_entries_update',
+    description: 'Bulk update journal entries for a books ledger',
+    inputSchema: z.object({
+      books_id: z.string().describe('books ledger UUID'),
+      data: z.string().describe('journal entries update payload JSON (array)'),
+    }),
+    handler: async (client, args: { books_id: string; data: string }) =>
+      client.updateJournalEntries(args.books_id, JSON.parse(args.data)),
+  },
+  {
+    name: 'journal_entries_delete',
+    description: 'Bulk delete journal entries for a books ledger',
+    inputSchema: z.object({
+      books_id: z.string().describe('books ledger UUID'),
+      data: z.string().optional().describe('optional payload JSON identifying entries to delete'),
+    }),
+    handler: async (client, args: { books_id: string; data?: string }) =>
+      client.deleteJournalEntries(args.books_id, args.data ? JSON.parse(args.data) : undefined),
+  },
+  {
+    name: 'journal_entry_get',
+    description: 'Retrieve a single journal entry',
+    inputSchema: z.object({
+      books_id: z.string().describe('books ledger UUID'),
+      journal_entry_id: z.string().describe('journal entry UUID'),
+    }),
+    handler: async (client, args: { books_id: string; journal_entry_id: string }) =>
+      client.getJournalEntry(args.books_id, args.journal_entry_id),
   },
 ];

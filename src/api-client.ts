@@ -1,3 +1,6 @@
+import { readFileSync } from 'fs';
+import { basename } from 'path';
+
 const DEFAULT_BASE_URL = 'https://api.mercury.com/api/v1';
 
 export class MercuryClient {
@@ -53,6 +56,31 @@ export class MercuryClient {
     return response.json();
   }
 
+  private async uploadFile<T>(endpoint: string, filePath: string): Promise<T> {
+    const url = `${this.baseUrl}${endpoint}`;
+    const form = new FormData();
+    const data = readFileSync(filePath);
+    form.append('file', new Blob([data]), basename(filePath));
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.token}`,
+        Accept: 'application/json',
+      },
+      body: form,
+    });
+
+    if (response.status === 204) return {} as T;
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`API Error ${response.status}: ${text}`);
+    }
+
+    return response.json();
+  }
+
   // --- Accounts ---
 
   async listAccounts(params?: { page?: string }) {
@@ -71,13 +99,14 @@ export class MercuryClient {
     return this.request<any>(`/account/${encodeURIComponent(accountId)}/statements`);
   }
 
-  async createInternalTransfer(accountId: string, data: {
-    receivingAccountId: string;
+  async createInternalTransfer(data: {
+    sourceAccountId: string;
+    destinationAccountId: string;
     amount: number;
-    memo?: string;
     idempotencyKey?: string;
+    note?: string;
   }) {
-    return this.request<any>(`/account/${encodeURIComponent(accountId)}/internal-transfer`, {
+    return this.request<any>('/transfer', {
       method: 'POST',
       body: data,
     });
@@ -123,6 +152,10 @@ export class MercuryClient {
     });
   }
 
+  async uploadTransactionAttachment(transactionId: string, filePath: string) {
+    return this.uploadFile<any>(`/transaction/${encodeURIComponent(transactionId)}/attachments`, filePath);
+  }
+
   async sendMoney(accountId: string, data: {
     recipientId: string;
     amount: number;
@@ -135,6 +168,71 @@ export class MercuryClient {
       method: 'POST',
       body: data,
     });
+  }
+
+  // --- Request Send Money (queued for approval) ---
+
+  async requestSendMoney(accountId: string, data: {
+    recipientId: string;
+    amount: number;
+    paymentMethod: string;
+    idempotencyKey: string;
+    memo?: string;
+    note?: string;
+  }) {
+    return this.request<any>(`/account/${encodeURIComponent(accountId)}/request-send-money`, {
+      method: 'POST',
+      body: data,
+    });
+  }
+
+  async listSendMoneyApprovalRequests(params?: { page?: string }) {
+    return this.request<any>('/request-send-money', { params });
+  }
+
+  async getSendMoneyApprovalRequest(requestId: string) {
+    return this.request<any>(`/request-send-money/${encodeURIComponent(requestId)}`);
+  }
+
+  // --- Cards ---
+
+  async listCards() {
+    return this.request<any>('/cards');
+  }
+
+  async createCard(data: {
+    userId: string;
+    type: string;
+    kind: string;
+    accountId?: string;
+    nickname?: string;
+    spendLimit?: any;
+    cardSpendManagementState?: any;
+  }) {
+    return this.request<any>('/cards', { method: 'POST', body: data });
+  }
+
+  async getCard(cardId: string) {
+    return this.request<any>(`/cards/${encodeURIComponent(cardId)}`);
+  }
+
+  async updateCard(cardId: string, data: { nickname?: string; spendLimit?: any }) {
+    return this.request<any>(`/cards/${encodeURIComponent(cardId)}`, {
+      method: 'POST',
+      body: data,
+    });
+  }
+
+  async cancelCard(cardId: string) {
+    return this.request<any>(`/cards/${encodeURIComponent(cardId)}/cancel`, { method: 'POST' });
+  }
+
+  async freezeCard(cardId: string) {
+    return this.request<any>(`/cards/${encodeURIComponent(cardId)}/freeze`, { method: 'POST' });
+  }
+
+  async unfreezeCard(cardId: string) {
+    return this.request<any>(`/cards/${encodeURIComponent(cardId)}/unfreeze`, { method: 'POST' });
   }
 
   // --- Recipients ---
@@ -156,7 +254,7 @@ export class MercuryClient {
     domesticWireRoutingInfo?: any;
     checkInfo?: any;
   }) {
-    return this.request<any>('/recipient', { method: 'POST', body: data });
+    return this.request<any>('/recipients', { method: 'POST', body: data });
   }
 
   async updateRecipient(recipientId: string, data: {
@@ -174,8 +272,43 @@ export class MercuryClient {
     });
   }
 
-  async listRecipientAttachments(recipientId: string) {
-    return this.request<any>(`/recipient/${encodeURIComponent(recipientId)}/attachments`);
+  async deleteRecipient(recipientId: string) {
+    return this.request<any>(`/recipient/${encodeURIComponent(recipientId)}`, { method: 'DELETE' });
+  }
+
+  async listRecipientAttachments() {
+    return this.request<any>('/recipients/attachments');
+  }
+
+  async uploadRecipientAttachment(recipientId: string, filePath: string) {
+    return this.uploadFile<any>(`/recipient/${encodeURIComponent(recipientId)}/attachments`, filePath);
+  }
+
+  // --- Recipient Invites ---
+
+  async listRecipientInvites(params?: { page?: string }) {
+    return this.request<any>('/recipients/invites', { params });
+  }
+
+  async createRecipientInvite(data: {
+    name: string;
+    contactEmail?: string;
+    notes?: string;
+    organizationNameOnRequest?: string;
+    paymentMethods?: string[];
+    recipientId?: string;
+    requireTaxDocument?: boolean;
+    sendEmail?: boolean;
+  }) {
+    return this.request<any>('/recipients/invites', { method: 'POST', body: data });
+  }
+
+  async getRecipientInvite(inviteId: string) {
+    return this.request<any>(`/recipients/invites/${encodeURIComponent(inviteId)}`);
+  }
+
+  async deleteRecipientInvite(inviteId: string) {
+    return this.request<any>(`/recipients/invites/${encodeURIComponent(inviteId)}`, { method: 'DELETE' });
   }
 
   // --- Accounts Receivable (Invoices) ---
@@ -219,6 +352,10 @@ export class MercuryClient {
     return this.request<any>(`/ar/invoices/${encodeURIComponent(slug)}/attachments`);
   }
 
+  async getArAttachment(attachmentId: string) {
+    return this.request<any>(`/ar/attachments/${encodeURIComponent(attachmentId)}`);
+  }
+
   // --- AR Customers ---
 
   async listArCustomers(params?: { page?: string }) {
@@ -244,20 +381,53 @@ export class MercuryClient {
     });
   }
 
+  async deleteArCustomer(customerId: string) {
+    return this.request<any>(`/ar/customers/${encodeURIComponent(customerId)}`, { method: 'DELETE' });
+  }
+
   // --- Treasury ---
 
   async listTreasuryAccounts() {
     return this.request<any>('/treasury');
   }
 
-  async listTreasuryTransactions(params?: { page?: string }) {
-    return this.request<any>('/treasury/transactions', { params });
+  async listTreasuryTransactions(treasuryId: string, params?: { page?: string }) {
+    return this.request<any>(`/treasury/${encodeURIComponent(treasuryId)}/transactions`, { params });
+  }
+
+  async listTreasuryStatements(treasuryId: string) {
+    return this.request<any>(`/treasury/${encodeURIComponent(treasuryId)}/statements`);
   }
 
   // --- Categories ---
 
   async listCategories() {
     return this.request<any>('/categories');
+  }
+
+  async createCategory(data: {
+    name: string;
+    visibleForCardSpend: boolean;
+    visibleForOther: boolean;
+    visibleForReimbursements: boolean;
+  }) {
+    return this.request<any>('/categories', { method: 'POST', body: data });
+  }
+
+  async editCategory(categoryId: string, data: {
+    name?: string;
+    visibleForCardSpend?: boolean;
+    visibleForOther?: boolean;
+    visibleForReimbursements?: boolean;
+  }) {
+    return this.request<any>(`/categories/${encodeURIComponent(categoryId)}`, {
+      method: 'POST',
+      body: data,
+    });
+  }
+
+  async deleteCategory(categoryId: string) {
+    return this.request<any>(`/categories/${encodeURIComponent(categoryId)}`, { method: 'DELETE' });
   }
 
   // --- Credit ---
@@ -279,7 +449,7 @@ export class MercuryClient {
   }
 
   async getUser(userId: string) {
-    return this.request<any>(`/user/${encodeURIComponent(userId)}`);
+    return this.request<any>(`/users/${encodeURIComponent(userId)}`);
   }
 
   // --- Events ---
@@ -289,7 +459,7 @@ export class MercuryClient {
   }
 
   async getEvent(eventId: string) {
-    return this.request<any>(`/event/${encodeURIComponent(eventId)}`);
+    return this.request<any>(`/events/${encodeURIComponent(eventId)}`);
   }
 
   // --- Webhooks ---
@@ -299,39 +469,113 @@ export class MercuryClient {
   }
 
   async getWebhook(webhookId: string) {
-    return this.request<any>(`/webhook/${encodeURIComponent(webhookId)}`);
+    return this.request<any>(`/webhooks/${encodeURIComponent(webhookId)}`);
   }
 
-  async createWebhook(data: { url: string; events?: string[] }) {
-    return this.request<any>('/webhook', { method: 'POST', body: data });
+  async createWebhook(data: { url: string; eventTypes?: string[]; filterPaths?: string[] }) {
+    return this.request<any>('/webhooks', { method: 'POST', body: data });
   }
 
-  async updateWebhook(webhookId: string, data: { url?: string; events?: string[] }) {
-    return this.request<any>(`/webhook/${encodeURIComponent(webhookId)}`, {
+  async updateWebhook(webhookId: string, data: {
+    url?: string;
+    eventTypes?: string[];
+    filterPaths?: string[];
+    status?: string;
+  }) {
+    return this.request<any>(`/webhooks/${encodeURIComponent(webhookId)}`, {
       method: 'POST',
       body: data,
+    });
+  }
+
+  async deleteWebhook(webhookId: string) {
+    return this.request<any>(`/webhooks/${encodeURIComponent(webhookId)}`, { method: 'DELETE' });
+  }
+
+  async verifyWebhook(webhookId: string, eventType: string) {
+    return this.request<any>(`/webhooks/${encodeURIComponent(webhookId)}/verify`, {
+      method: 'POST',
+      body: { eventType },
     });
   }
 
   // --- SAFEs ---
 
   async listSafes(params?: { page?: string }) {
-    return this.request<any>('/safe-requests', { params });
+    return this.request<any>('/safes', { params });
   }
 
   async getSafe(safeId: string) {
-    return this.request<any>(`/safe-request/${encodeURIComponent(safeId)}`);
+    return this.request<any>(`/safes/${encodeURIComponent(safeId)}`);
+  }
+
+  async getSafeDocument(safeId: string) {
+    return this.request<any>(`/safes/${encodeURIComponent(safeId)}/document`);
   }
 
   // --- Statements ---
 
   async getStatementPdf(statementId: string) {
-    return this.request<any>(`/statement/${encodeURIComponent(statementId)}/pdf`);
+    return this.request<any>(`/statements/${encodeURIComponent(statementId)}/pdf`);
   }
 
-  // --- Send Money Approval ---
+  // --- Onboarding ---
 
-  async getSendMoneyApprovalRequest(requestId: string) {
-    return this.request<any>(`/send-money-approval-request/${encodeURIComponent(requestId)}`);
+  async submitOnboardingData(data: any) {
+    return this.request<any>('/submit-onboarding-data', { method: 'POST', body: data });
+  }
+
+  // --- Books: Chart of Accounts Templates ---
+
+  async listCoaTemplates() {
+    return this.request<any>('/books/agent-coa-templates');
+  }
+
+  async createCoaTemplate(data: any) {
+    return this.request<any>('/books/agent-coa-templates', { method: 'POST', body: data });
+  }
+
+  async getCoaTemplate(coaTemplateId: string) {
+    return this.request<any>(`/books/agent-coa-template/${encodeURIComponent(coaTemplateId)}`);
+  }
+
+  async deleteCoaTemplate(coaTemplateId: string) {
+    return this.request<any>(`/books/agent-coa-template/${encodeURIComponent(coaTemplateId)}`, { method: 'DELETE' });
+  }
+
+  // --- Books: Ledger Templates ---
+
+  async createLedgerTemplate(data: any) {
+    return this.request<any>('/books/agent-ledger-templates', { method: 'POST', body: data });
+  }
+
+  async updateLedgerTemplate(ledgerId: string, data: any) {
+    return this.request<any>(`/books/agent-ledger-template/${encodeURIComponent(ledgerId)}`, { method: 'PUT', body: data });
+  }
+
+  async deleteLedgerTemplate(ledgerId: string) {
+    return this.request<any>(`/books/agent-ledger-template/${encodeURIComponent(ledgerId)}`, { method: 'DELETE' });
+  }
+
+  // --- Books: Journal Entries ---
+
+  async listJournalEntries(booksId: string) {
+    return this.request<any>(`/books/journal-entries/${encodeURIComponent(booksId)}`);
+  }
+
+  async createJournalEntries(booksId: string, data: any) {
+    return this.request<any>(`/books/journal-entries/${encodeURIComponent(booksId)}`, { method: 'POST', body: data });
+  }
+
+  async updateJournalEntries(booksId: string, data: any) {
+    return this.request<any>(`/books/journal-entries/${encodeURIComponent(booksId)}`, { method: 'PUT', body: data });
+  }
+
+  async deleteJournalEntries(booksId: string, data?: any) {
+    return this.request<any>(`/books/journal-entries/${encodeURIComponent(booksId)}`, { method: 'DELETE', body: data });
+  }
+
+  async getJournalEntry(booksId: string, journalEntryId: string) {
+    return this.request<any>(`/books/journal-entry/${encodeURIComponent(booksId)}/${encodeURIComponent(journalEntryId)}`);
   }
 }
